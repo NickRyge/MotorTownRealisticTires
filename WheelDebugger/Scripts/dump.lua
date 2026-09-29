@@ -1,4 +1,4 @@
--- One-shot dump of the game's tire / driver-aid settings (Ctrl+F9) to research/game_dump_*.txt:
+-- One-shot dump of the game's tire / driver-aid settings (Ctrl+F9) to the output folder (paths.lua), game_dump_*.txt:
 --   1. tire and aid console variables (value via KismetSystemLibrary.GetConsoleVariableFloatValue)
 --   2. every loaded PhysicalMaterial: numeric properties (friction etc.)
 --   3. every loaded vehicle type: numeric MTVehicle properties (steering, OptimalSlipAngleDegree, ...) + tire asset
@@ -6,7 +6,7 @@
 
 local M = {}
 
-local OUT_DIR = "C:\\Users\\Ryge\\MotorTownTools\\research\\"
+local OUT_DIR = require("paths").dir("")
 local CVARS = {
     "mh.fFBPhysicsAlignTorque",
     "mh.ffbStrength",

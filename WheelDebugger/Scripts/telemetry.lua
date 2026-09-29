@@ -8,7 +8,7 @@
 local M = {}
 
 local WHEEL_CLASS = "/Script/MotorTown.MHWheelComponent"
-local OUT_DIR = "C:\\Users\\Ryge\\MotorTownTools\\research\\telemetry\\"
+local OUT_DIR = require("paths").dir("telemetry")
 
 local function valid(o) return o ~= nil and o:IsValid() end
 local function asDouble(i) return string.unpack("<d", string.pack("<i8", i)) end

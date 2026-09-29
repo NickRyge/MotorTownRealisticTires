@@ -1,7 +1,7 @@
 -- One-off experiment to find where the game stores each wheel's actual steering angle.
 -- Records raw floats of MHWheelComponent (0x580..0x9FC, known doubles excluded) for the steering wheels
--- and one rear wheel, plus the yaw of each wheel's child components, to research/telemetry/steer_*.csv.
--- Analyse with research/analyze_steer.py. Only plain float reads of the player's own wheels.
+-- and one rear wheel, plus the yaw of each wheel's child components, to output	elemetrysteer_*.csv (paths.lua).
+-- Only plain float reads of the player's own wheels.
 
 local M = {}
 
@@ -9,7 +9,7 @@ local WHEEL_CLASS = "/Script/MotorTown.MHWheelComponent"
 local FROM, TO = 0x580, 0x9FC
 local SKIP = { [0x6B8] = 1, [0x6BC] = 1, [0x6C0] = 1, [0x6C4] = 1, [0x6C8] = 1, [0x6CC] = 1, [0x6D0] = 1, [0x6D4] = 1,
     [0x6D8] = 1, [0x6DC] = 1, [0x6E0] = 1, [0x6E4] = 1, [0x708] = 1, [0x70C] = 1, [0x710] = 1, [0x714] = 1, [0x900] = 1, [0x904] = 1 }
-local OUT_DIR = "C:\\Users\\Ryge\\MotorTownTools\\research\\telemetry\\"
+local OUT_DIR = require("paths").dir("telemetry")
 
 local cols = nil
 local function register()

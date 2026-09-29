@@ -1,0 +1,42 @@
+# Publishes the prepared draft release when a version change lands on main.
+# The pak can't be built here (it needs the game files), so the assets are uploaded to a draft
+# release named v<VERSION> beforehand; merging the release PR publishes it and tags the merge commit.
+name: Publish release
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish the draft release for VERSION
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(tr -d '[:space:]' < VERSION)"
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+                 --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id")
+          if [ -z "$id" ]; then
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --silent 2>/dev/null; then
+              echo "$tag is already published, nothing to do."
+              exit 0
+            fi
+            echo "::error::No draft release for $tag. Upload the assets to a draft named $tag first."
+            exit 1
+          fi
+          assets=$(gh api "repos/${GITHUB_REPOSITORY}/releases/$id" --jq '.assets | length')
+          if [ "$assets" -eq 0 ]; then
+            echo "::error::Draft $tag has no assets."
+            exit 1
+          fi
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/$id" \
+            -f target_commitish="$GITHUB_SHA" -F draft=false -f make_latest=true \
+            --jq '"Published " + .tag_name + ": " + .html_url'

@@ -26,3 +26,6 @@ research/
 tire_math.py
 proposed_values.json
 tires.json
+
+# Release output
+dist/
