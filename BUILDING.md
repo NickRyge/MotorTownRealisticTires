@@ -53,3 +53,9 @@ If that ever fails after an update, the manual route that found it the first tim
 - The params struct sits at offset 0x30 in `UMTTirePhysicsDataAsset`. Wheel config: `TirePhysicsData` at 0x638, `BrushTirePhysics` at 0x640 (its `ContactPatchLength` at +0x54, `ContactPatchStaticLength` at +0x58).
 - C++ defaults (read from the constructor): PatchLengthCoefficient 20000, StaticMu 1.0, SlidingMu 0.8, SpringX 30000, SpringY 8000, DampingX 100, DampingY 20, CoolDownSpeed 0.5, WarmUpSpeed 100, WearRate 1.0, SmokeRate 1.0, MaxWeightKg 1000, BrushCount 180.
 - The brush force function itself has not been located or disassembled yet.
+
+## Releasing
+
+1. On a release branch, bump `VERSION` (e.g. `1.1.0`) and build the assets: `.\package-release.ps1 -Pak <path to pak>`.
+2. Create a **draft** GitHub release with tag `v<VERSION>` (target `main`) and upload `dist/MTTireFix_P.pak` and `dist/WheelDebugger.zip`.
+3. Open a PR to `main`. When it's merged, the `Publish release` workflow publishes the draft, tags the merge commit and marks it as the latest release.
