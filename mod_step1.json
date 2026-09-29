@@ -1,0 +1,58 @@
+{
+ "BasicTire_45": {
+  "SpringY": 51500,
+  "DampingY": 220
+ },
+ "BasicTire_65": {
+  "SpringY": 43000,
+  "DampingY": 169
+ },
+ "DriftTire": {
+  "SpringY": 32500,
+  "DampingY": 147
+ },
+ "HeavyDuty_Load1_FrontTire": {
+  "SpringY": 275500,
+  "DampingY": 235
+ },
+ "HeavyDuty_Load1_RearTire": {
+  "SpringY": 550500,
+  "DampingY": 469
+ },
+ "HeavyDutyFrontTire": {
+  "SpringY": 275500,
+  "DampingY": 235
+ },
+ "HeavyDutyFrontTireA": {
+  "SpringY": 533000,
+  "DampingY": 400
+ },
+ "HeavyDutyRearTire": {
+  "SpringY": 550500,
+  "DampingY": 469
+ },
+ "HeavyMachine_20Ton_FrontTire": {
+  "SpringY": 275500,
+  "DampingY": 235
+ },
+ "HeavyMachine_20Ton_RearTire": {
+  "SpringY": 550500,
+  "DampingY": 469
+ },
+ "Motorcycle_Front": {
+  "SpringY": 6500,
+  "DampingY": 64
+ },
+ "Motorcycle_Rear": {
+  "SpringY": 8000,
+  "DampingY": 82
+ },
+ "OffroadTire": {
+  "SpringY": 35500,
+  "DampingY": 154
+ },
+ "PerformanceTire_45": {
+  "SpringY": 60000,
+  "DampingY": 267
+ }
+}

@@ -1,0 +1,28 @@
+# Secrets / third-party binaries (not redistributable)
+aes.txt
+*.dll
+UE4SS/
+
+# Build output (paks go to GitHub Releases)
+build/
+MTPak/bin/
+MTPak/obj/
+research/legacy_*/bin/
+research/legacy_*/obj/
+extracted/
+__pycache__/
+*.pyc
+
+# Game content and large local data
+research/stock_assets/
+research/brake_assets/
+research/disasm/
+research/game_dump_*.txt
+research/telemetry/
+
+# Personal working files (notes, research, analysis)
+NOTES.md
+research/
+tire_math.py
+proposed_values.json
+tires.json
