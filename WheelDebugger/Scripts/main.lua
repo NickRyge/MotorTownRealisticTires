@@ -381,4 +381,4 @@ RegisterKeyBind(Key.F9, safe("resetMax", function() overlay.resetMax(); log("max
 RegisterKeyBind(Key.F10, safe("record", function() overlay.record(overlayVehicle, log) end))
 -- A reload leaves the previous overlay on screen; clear it so F8 starts clean.
 ExecuteInGameThread(function() pcall(overlay.clearAll, log) end)
-log("loaded. F6 brake panel, F7 wheel view + G-meter, F8 overlay, F9 reset max, F10 record 30 s telemetry (press again to stop), Ctrl+F10 steering probe, Ctrl+F9 settings dump, Ctrl+F7 assist, Ctrl+F6 brakes, Ctrl+F5 ABS preset, Ctrl+F3 tyre drop-off, Ctrl+F1 FFB preset")
+log("loaded. F6 brake panel, F7 wheel view + G-meter, F8 overlay, F9 reset max, F10 record 30 s telemetry (press again to stop), Ctrl+F10 steering probe, Ctrl+F9 settings dump, Ctrl+F7 assist, Ctrl+F6 brakes, Ctrl+F5 ABS preset, Ctrl+F3 tyre drop-off, Ctrl+F8 friction circle, Ctrl+F1 FFB preset")
