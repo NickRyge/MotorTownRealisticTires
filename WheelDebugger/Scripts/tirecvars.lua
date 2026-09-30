@@ -7,13 +7,13 @@
 --            Off, lateral and longitudinal grip are limited separately, so wheelspin doesn't cost side grip and the
 --            throttle can't balance a drift. On, both share one friction circle: spinning the rears should reduce
 --            their lateral grip (throttle steers the rear), and braking in a corner should cost grip too.
--- Stock values are hardcoded (0); a script reload re-applies the current choices.
+-- Friction circle is on by default, drop-off off. Stock values are hardcoded (0); a script reload re-applies the defaults.
 
 local M = {}
 
 local switches = {
     dropoff = { cv = "mh.tire.useSlidingMuClamp", name = "drop-off", key = "Ctrl+F3", enabled = false },
-    circle  = { cv = "mh.tire.useCircleFriction", name = "friction circle", key = "Ctrl+F8", enabled = false },
+    circle  = { cv = "mh.tire.useCircleFriction", name = "friction circle", key = "Ctrl+F8", enabled = true },  -- on by default: confirmed better (2026-09-30)
 }
 local order = { "dropoff", "circle" }
 
