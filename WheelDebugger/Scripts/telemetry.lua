@@ -12,6 +12,8 @@ local OUT_DIR = require("paths").dir("telemetry")
 
 local function valid(o) return o ~= nil and o:IsValid() end
 local function asDouble(i) return string.unpack("<d", string.pack("<i8", i)) end
+-- Reflected reads can return a UE4SS object instead of a number (e.g. mid-air / flipped); treat those as missing.
+local function num(x) if type(x) == "number" then return x end end
 
 local registered = false
 function M.register()
@@ -118,10 +120,10 @@ function M.sample(veh)
     local wheels, slots, info = wheelsOf(veh)
     local s = { vehicleKey = cache.vehAddr, wheels = {}, steer = 0, maxSteer = 0, parallel = 1, speed = 0, speedMs = 0, t = 0, velX = 0, velY = 0, accLat = 0, accLong = 0 }
     if valid(veh) then
-        s.steer = veh.Steer
-        s.maxSteer = veh.MaxSteeringAngleDegree
-        pcall(function() s.brake = veh.Brake; s.throttle = veh.Throttle end)
-        pcall(function() s.parallel = veh.ParallelSteering end)
+        s.steer = num(veh.Steer) or 0
+        s.maxSteer = num(veh.MaxSteeringAngleDegree) or 0
+        pcall(function() s.brake = num(veh.Brake); s.throttle = num(veh.Throttle) end)
+        pcall(function() s.parallel = num(veh.ParallelSteering) or 1 end)
         local v = veh:GetVelocity()                                   -- cm/s
         s.speedMs = math.sqrt(v.X * v.X + v.Y * v.Y) / 100
         s.speed = s.speedMs * 3.6
