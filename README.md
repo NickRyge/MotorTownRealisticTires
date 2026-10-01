@@ -60,6 +60,7 @@ A separate, optional add-on for people who want to tweak things further. It need
 It adds:
 - stronger brakes (×1.8), because stock brakes run out before the tires do
 - smoother ABS
+- the game's friction circle (on by default), so slides hold and recover better
 - force feedback presets for steering wheels
 - live tire and brake telemetry overlays and a 30-second data recorder
 
@@ -81,6 +82,7 @@ It adds:
 | Ctrl+F5 | ABS preset: stock / fast / smooth (default) / firm |
 | Ctrl+F1 | Force feedback preset: stock / detail (default) / raw |
 | Ctrl+F7 | Steering assist for keyboard/gamepad (off by default) |
+| Ctrl+F8 | Friction circle on (default) / off |
 
 **Uninstall:** delete `dwmapi.dll` and the `ue4ss` folder from `MotorTown/Binaries/Win64/`.
 
