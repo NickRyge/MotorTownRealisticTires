@@ -338,8 +338,8 @@ function M.sample() return { pedal = st.pedal, out = st.out, cut = st.cut, dv = 
 
 function M.label()
     local head = tcLevel == 0 and "TC off" or string.format("TC %d CUT %d", tcLevel, cutLevel)
-    return string.format("%s%s  [%s %.0f Hz]\n  pedal %.2f -> %.2f\n  spin %.1f / %.1f m/s\n  SetThrottle %.0f/s%s%s",
-        head, testCut and " TEST" or "", ACTUATORS[actuator], st.hz, st.pedal, st.out, st.dvMax, st.allowed,
+    return string.format("%s%s  [%s, %s %.0f Hz]\n  pedal %.2f -> %.2f\n  spin %.1f / %.1f m/s\n  SetThrottle %.0f/s%s%s",
+        head, testCut and " TEST" or "", ACTUATORS[actuator], st.phase or "-", st.hz, st.pedal, st.out, st.dvMax, st.allowed,
         st.hookHz, st.hookIn and string.format(" (in %.2f)", st.hookIn) or "",
         st.disabled and ("\n  " .. st.disabled) or "")
 end
@@ -362,17 +362,50 @@ registerHook = function(log)
     log("TC: SetThrottle hook %s", ok and "registered" or ("failed: " .. tostring(err)))
 end
 
--- Loop: once per frame on the game thread (loop.lua; needs UE4SS's EngineTick hook), else every 16 ms, also on the
--- game thread. No async thread: a 5 ms LoopAsync + ExecuteInGameThread crashed the game (Lua state race).
+-- Where the controller step runs. A per-frame loop runs at the start of the engine tick, before the input: the input
+-- then overwrites the throttle we wrote, so nothing reaches the physics (seen 2026-10-02). The player controller's
+-- Blueprint ReceiveTick (MotorTownPlayerControllerBP implements it) runs after the controller has processed input,
+-- and the pawn (the vehicle) ticks after its controller: a pre-hook there writes between input and physics.
+-- The frame loop keeps the HUD going and steps the TC itself only while that hook isn't firing.
 local running, started = false, false
-local function body(getPC, getVehicle, log)
-    if not started then started = true; log("TC: loop running (%s)", st.mode) end
+local pcHook = { registered = false, calls = 0, lastClock = 0, tried = false }
+
+local function stepSafe(getVehicle, log, where)
     local ok, err = pcall(function()
         local veh = getVehicle()
         if valid(veh) then M.step(veh, log) end
-        M.hud(getPC(), os.clock())
     end)
-    if not ok and not st.warned then st.warned = true; log("TC step failed: %s", tostring(err)) end
+    if not ok and not st.warned then st.warned = true; log("TC step (%s) failed: %s", where, tostring(err)) end
+end
+
+local function tryPCHook(pc, getVehicle, log)
+    if pcHook.tried or not valid(pc) then return end
+    pcHook.tried = true
+    local clsPath = pc:GetClass():GetFullName():match("^%S+%s+(.+)$")         -- "BlueprintGeneratedClass /Game/..._C"
+    local fnPath = clsPath and (clsPath .. ":ReceiveTick")
+    if not fnPath or not valid(StaticFindObject(fnPath)) then
+        log("TC: no Blueprint ReceiveTick on %s; stepping from the frame loop", tostring(clsPath)); return
+    end
+    local ok, err = pcall(RegisterHook, fnPath, function()
+        pcHook.calls = pcHook.calls + 1
+        pcHook.lastClock = os.clock()
+        st.phase = "controller tick"
+        stepSafe(getVehicle, log, "controller tick")
+    end)
+    pcHook.registered = ok
+    log("TC: controller tick hook on %s: %s", fnPath, ok and "registered" or ("failed: " .. tostring(err)))
+end
+
+local function body(getPC, getVehicle, log)
+    if not started then started = true; log("TC: loop running (%s)", st.mode) end
+    local pc = getPC()
+    pcall(tryPCHook, pc, getVehicle, log)
+    if os.clock() - pcHook.lastClock > 0.25 then
+        st.phase = "frame loop"
+        stepSafe(getVehicle, log, "frame loop")
+    end
+    local ok, err = pcall(M.hud, pc, os.clock())
+    if not ok and not st.hudWarned then st.hudWarned = true; log("TC hud failed: %s", tostring(err)) end
 end
 
 function M.start(getPC, getVehicle, log)
