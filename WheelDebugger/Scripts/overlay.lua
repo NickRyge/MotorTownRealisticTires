@@ -124,7 +124,7 @@ local function render(s, per, cLat, cLong, corner)
     ui.blocks.C:SetText(FText(string.format(
         "CAR  %3.0f km/h\n\nCornering %s g\n  max %4.2f\n  radius %s\nTire lat  %s g\n  max %4.2f\nLong      %s g\n  max +%4.2f / %4.2f\n\nSteer %+5.1f°\n(input %+4.2f × %.0f°)\n%s\nF9 reset max",
         s.speed, fmtG(corner), carMax.corner, radius, fmtG(cLat), carMax.lat, fmtG(cLong), carMax.accel, carMax.brake,
-        s.steer * s.maxSteer, s.steer, s.maxSteer, M.status()) .. "\n\nPeak slip angle\n" .. peak.lines() .. "\n" .. require("assist").label() .. "\n" .. require("brakes").label() .. "  " .. require("tirecvars").label() .. "  " .. require("ffb").label()))
+        s.steer * s.maxSteer, s.steer, s.maxSteer, M.status()) .. "\n\nPeak slip angle\n" .. peak.lines() .. "\n" .. require("assist").label() .. "\n" .. require("brakes").label() .. "  " .. require("tirecvars").label() .. "  " .. require("ffb").label() .. "\n" .. require("tc").label()))
 end
 
 local visual = require("visual")
