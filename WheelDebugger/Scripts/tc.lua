@@ -32,7 +32,10 @@ local tcLevel, cutLevel = 6, 5
 local registerHook          -- defined near the end (needs the controller state)
 -- hook: pre-hook on MTEngineComponent:SetThrottle scales the argument (works only if the game calls it through
 -- reflection; the panel shows calls/s). vehicle: write vehicle Throttle. engine: call SetThrottle ourselves.
-local ACTUATORS = { "vehicle", "hook", "engine", "both" }
+-- scale: engine-component throttle scale at +0x2E4. The engine's effective throttle is
+-- max(Throttle(+0x2F0) × scale(+0x2E4) × stock TC multiplier, idle(+0x2E8)) (RVA 0x557cf90), and the physics rewrites
+-- +0x2F0 every tick from the input, which is why vehicle Throttle / SetThrottle writes never reached the wheels.
+local ACTUATORS = { "scale", "vehicle", "hook", "engine", "both" }
 local actuator = 1
 local testCut = false
 
@@ -178,6 +181,22 @@ local function reset()
     st.cut, st.i = 0, 0
 end
 
+-- Engine throttle scale (+0x2E4): base × (1 − cut) while the "scale" actuator cuts, base otherwise. If the value isn't
+-- what we last wrote, the game set it, and that becomes the new base.
+local function applyScale(cut)
+    local e = st.engine
+    if not valid(e) then return end
+    local cur = num(e.tc_eScale)
+    if not cur then return end
+    if st.scaleWritten == nil or math.abs(cur - st.scaleWritten) > 1e-6 then st.scaleBase = cur end
+    local want = st.scaleBase
+    if ACTUATORS[actuator] == "scale" and not st.disabled then want = st.scaleBase * (1 - cut) end
+    if math.abs(want - cur) > 1e-6 then e.tc_eScale = want end
+    st.scaleWritten = want
+    -- Shown on the panel: the scale as found (before this write), so a cut that sticks shows up as < 1 there.
+    st.eThr, st.eScale, st.eIdle = num(e.tc_eThr), cur, num(e.tc_eIdle)
+end
+
 -- One controller step. Called from the game thread as often as UE4SS lets us.
 function M.step(veh, log)
     if not valid(veh) then return end
@@ -188,6 +207,8 @@ function M.step(veh, log)
         if addr ~= st.vehAddr then
             st.lastWritten, st.stuck, st.disabled, st.unit, st.lastYaw = nil, 0, nil, nil, nil
             reset()
+            pcall(applyScale, 0)                         -- give the old engine its scale back
+            st.scaleWritten, st.scaleBase = nil, nil
             pcall(discover, veh, log)
         end
         st.vehAddr, st.wheels = addr, components(veh, WHEEL_CLASS)
@@ -238,6 +259,7 @@ function M.step(veh, log)
     if not active or pedal < MIN_PEDAL or brake > 0.1 or dv == nil then
         reset()
         st.out, st.dvMax = pedal, dv or 0
+        applyScale(0)
         return
     end
 
@@ -256,6 +278,7 @@ function M.step(veh, log)
     st.dvMax = dv
     st.out = pedal * (1 - st.cut)
     if st.cut > 0.005 then write(veh, st.out) end
+    applyScale(st.cut)
 end
 
 -- Small HUD box: dial values for 3 s after a change, and while the TC is cutting.
@@ -321,6 +344,7 @@ function M.cutDown(log) cutLevel = math.max(1, cutLevel - 1); changed(log) end
 function M.cycleActuator(log)
     actuator = actuator % #ACTUATORS + 1
     if ACTUATORS[actuator] == "hook" then registerHook(log) end
+    pcall(applyScale, 0)
     st.disabled, st.stuck, st.lastWritten = nil, 0, nil
     st.showUntil = os.clock() + 3
     log("TC actuator: %s%s", ACTUATORS[actuator],
@@ -338,9 +362,10 @@ function M.sample() return { pedal = st.pedal, out = st.out, cut = st.cut, dv = 
 
 function M.label()
     local head = tcLevel == 0 and "TC off" or string.format("TC %d CUT %d", tcLevel, cutLevel)
-    return string.format("%s%s  [%s, %s %.0f Hz]\n  pedal %.2f -> %.2f\n  spin %.1f / %.1f m/s\n  SetThrottle %.0f/s%s%s",
+    return string.format("%s%s  [%s, %s %.0f Hz]\n  pedal %.2f -> %.2f\n  spin %.1f / %.1f m/s\n  SetThrottle %.0f/s%s\n  engine thr %.2f x %.2f (idle %.2f)%s",
         head, testCut and " TEST" or "", ACTUATORS[actuator], st.phase or "-", st.hz, st.pedal, st.out, st.dvMax, st.allowed,
         st.hookHz, st.hookIn and string.format(" (in %.2f)", st.hookIn) or "",
+        st.eThr or -1, st.eScale or -1, st.eIdle or -1,
         st.disabled and ("\n  " .. st.disabled) or "")
 end
 
@@ -412,6 +437,10 @@ function M.start(getPC, getVehicle, log)
     if running then return end
     running = true
     require("telemetry").register()
+    for _, p in ipairs({ { "tc_eScale", 0x2E4 }, { "tc_eIdle", 0x2E8 }, { "tc_eThr", 0x2F0 } }) do
+        pcall(RegisterCustomProperty, { Name = p[1], Type = PropertyTypes.FloatProperty,
+            BelongsToClass = "/Script/MotorTown.MTEngineComponent", OffsetInternal = p[2] })
+    end
     local loop = require("loop")
     local h, mode = loop.frames(1, function() body(getPC, getVehicle, log) end)
     if not h then _, mode = loop.every(16, function() body(getPC, getVehicle, log) end) end
