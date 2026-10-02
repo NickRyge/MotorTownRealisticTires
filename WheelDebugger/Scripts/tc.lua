@@ -307,32 +307,37 @@ function M.label()
         st.disabled and ("\n  " .. st.disabled) or "")
 end
 
--- Loop: as fast as UE4SS queues game-thread work. A new run is queued only after the previous one ran; if a queued
--- run never arrives (seen once at startup: "Ref was not function"), the watchdog queues a new one after 0.2 s.
-local running, pending, pendingSince, started = false, false, 0, false
+-- Loop. Preferred: once per frame on the game thread (LoopInGameThreadAfterFrames, needs UE4SS's EngineTick hook),
+-- no async thread at all. A 5 ms LoopAsync + ExecuteInGameThread crashed the game (UE4SS abort, preceded by a bogus
+-- "IsValid is a string" error: the async thread and the game thread racing on the Lua state). The fallback is the
+-- overlay's proven 50 ms pattern.
+local running, started = false, false
+local function body(getPC, getVehicle, log)
+    if not started then started = true; log("TC: loop running (%s)", st.mode) end
+    local ok, err = pcall(function()
+        local veh = getVehicle()
+        if valid(veh) then M.step(veh, log) end
+        M.hud(getPC(), os.clock())
+    end)
+    if not ok and not st.warned then st.warned = true; log("TC step failed: %s", tostring(err)) end
+end
+
 function M.start(getPC, getVehicle, log)
     if running then return end
     running = true
     require("telemetry").register()
-    LoopAsync(5, function()
-        if pending then
-            if os.clock() - pendingSince < 0.2 then return false end
-            st.lost = (st.lost or 0) + 1
-            if st.lost <= 3 or st.lost % 100 == 0 then log("TC: game-thread run lost (%d so far), queuing again", st.lost) end
-        end
-        pending, pendingSince = true, os.clock()
-        ExecuteInGameThread(function()
-            pending = false
-            if not started then started = true; log("TC: loop running") end
-            local ok, err = pcall(function()
-                local veh = getVehicle()
-                if valid(veh) then M.step(veh, log) end
-                M.hud(getPC(), os.clock())
-            end)
-            if not ok and not st.warned then st.warned = true; log("TC step failed: %s", tostring(err)) end
-        end)
-        return false
+    local ok = type(LoopInGameThreadAfterFrames) == "function" and pcall(function()
+        LoopInGameThreadAfterFrames(1, function() body(getPC, getVehicle, log) end)
     end)
+    if ok then
+        st.mode = "every frame"
+    else
+        st.mode = "50 ms fallback"
+        LoopAsync(50, function()
+            ExecuteInGameThread(function() body(getPC, getVehicle, log) end)
+            return false
+        end)
+    end
 end
 
 return M
