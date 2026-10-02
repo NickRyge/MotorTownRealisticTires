@@ -365,13 +365,14 @@ RegisterKeyBind(Key.F1, { ModifierKey.CONTROL }, safe("ffb", function()
     ffb.cycle(UEHelpers.GetPlayerController(), log)
 end))
 local tc = require("tc")
-local CS = { ModifierKey.CONTROL, ModifierKey.SHIFT }
-RegisterKeyBind(Key.F2, { ModifierKey.CONTROL }, safe("tcUp", function() tc.tcUp(log) end))
-RegisterKeyBind(Key.F2, CS, safe("tcDown", function() tc.tcDown(log) end))
-RegisterKeyBind(Key.F4, { ModifierKey.CONTROL }, safe("cutUp", function() tc.cutUp(log) end))
-RegisterKeyBind(Key.F4, CS, safe("cutDown", function() tc.cutDown(log) end))
-RegisterKeyBind(Key.F11, { ModifierKey.CONTROL }, safe("tcActuator", function() tc.cycleActuator(log) end))
-RegisterKeyBind(Key.F11, CS, safe("tcTest", function() tc.toggleTest(log) end))
+-- Traction control on the numpad: 8/2 TC, 6/4 CUT, 5 on/off, 0 actuator, . actuator test.
+RegisterKeyBind(Key.NUM_EIGHT, safe("tcUp", function() tc.tcUp(log) end))
+RegisterKeyBind(Key.NUM_TWO, safe("tcDown", function() tc.tcDown(log) end))
+RegisterKeyBind(Key.NUM_SIX, safe("cutUp", function() tc.cutUp(log) end))
+RegisterKeyBind(Key.NUM_FOUR, safe("cutDown", function() tc.cutDown(log) end))
+RegisterKeyBind(Key.NUM_FIVE, safe("tcToggle", function() tc.toggle(log) end))
+RegisterKeyBind(Key.NUM_ZERO, safe("tcActuator", function() tc.cycleActuator(log) end))
+RegisterKeyBind(Key.DECIMAL, safe("tcTest", function() tc.toggleTest(log) end))
 tc.start(UEHelpers.GetPlayerController, overlayVehicle, log)
 -- Keep the assist target applied across vehicle switches, even with no panel open (1 s watcher).
 LoopAsync(1000, function()
@@ -390,4 +391,4 @@ RegisterKeyBind(Key.F9, safe("resetMax", function() overlay.resetMax(); log("max
 RegisterKeyBind(Key.F10, safe("record", function() overlay.record(overlayVehicle, log) end))
 -- A reload leaves the previous overlay on screen; clear it so F8 starts clean.
 ExecuteInGameThread(function() pcall(overlay.clearAll, log) end)
-log("loaded. F6 brake panel, F7 wheel view + G-meter, F8 overlay, F9 reset max, F10 record 30 s telemetry (press again to stop), Ctrl+F10 steering probe, Ctrl+F9 settings dump, Ctrl+F7 assist, Ctrl+F6 brakes, Ctrl+F5 ABS preset, Ctrl+F3 tyre drop-off, Ctrl+F8 friction circle, Ctrl+F1 FFB preset, Ctrl(+Shift)+F2 TC up/down, Ctrl(+Shift)+F4 TC cut up/down, Ctrl+F11 TC actuator, Ctrl+Shift+F11 TC actuator test")
+log("loaded. F6 brake panel, F7 wheel view + G-meter, F8 overlay, F9 reset max, F10 record 30 s telemetry (press again to stop), Ctrl+F10 steering probe, Ctrl+F9 settings dump, Ctrl+F7 assist, Ctrl+F6 brakes, Ctrl+F5 ABS preset, Ctrl+F3 tyre drop-off, Ctrl+F8 friction circle, Ctrl+F1 FFB preset, numpad TC: 8/2 TC, 6/4 cut, 5 on/off, 0 actuator, . test")

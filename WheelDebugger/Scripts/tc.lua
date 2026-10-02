@@ -6,10 +6,10 @@
 -- Slip per wheel = (|surface speed| - |ground speed|) from the contact-patch fields (telemetry.lua offsets), so it is
 -- exact on any drivetrain: no undriven reference wheel needed. The worst wheel drives the controller.
 --
--- Keys (temporary until there is an options-menu entry):
---   Ctrl+F2 / Ctrl+Shift+F2   TC  up / down        Ctrl+F4 / Ctrl+Shift+F4   CUT up / down
---   Ctrl+F11                  actuator: vehicle Throttle / engine SetThrottle / both
---   Ctrl+Shift+F11            actuator test: fixed 50 % throttle cut while the pedal is down (TC logic bypassed)
+-- Keys, numpad (temporary until there is an options-menu entry):
+--   8 / 2   TC  up / down        6 / 4   CUT up / down        5   TC on / off (keeps the level)
+--   0       actuator: vehicle Throttle / engine SetThrottle / both
+--   .       actuator test: fixed 50 % throttle cut while the pedal is down (TC logic bypassed)
 --
 -- Unverified: whether a throttle written from Lua reaches the physics before the input overwrites it. The loop
 -- checks itself: it shows the rate it runs at, and stops writing if a written value is never overwritten by the
@@ -273,7 +273,12 @@ local function changed(log)
     else log("TC %d (slip %.0f %%), CUT %d (P %.2f, I %.1f)", tcLevel, slipTarget(tcLevel) * 100, cutLevel, gains(cutLevel)) end
 end
 
+local savedLevel = tcLevel
 function M.tcUp(log) tcLevel = math.min(11, tcLevel + 1); changed(log) end
+function M.toggle(log)
+    if tcLevel > 0 then savedLevel, tcLevel = tcLevel, 0 else tcLevel = savedLevel > 0 and savedLevel or 6 end
+    changed(log)
+end
 function M.tcDown(log) tcLevel = math.max(0, tcLevel - 1); changed(log) end
 function M.cutUp(log) cutLevel = math.min(11, cutLevel + 1); changed(log) end
 function M.cutDown(log) cutLevel = math.max(1, cutLevel - 1); changed(log) end
@@ -302,17 +307,23 @@ function M.label()
         st.disabled and ("\n  " .. st.disabled) or "")
 end
 
--- Loop: as fast as UE4SS queues game-thread work. A new run is queued only after the previous one ran.
-local running, pending = false, false
+-- Loop: as fast as UE4SS queues game-thread work. A new run is queued only after the previous one ran; if a queued
+-- run never arrives (seen once at startup: "Ref was not function"), the watchdog queues a new one after 0.2 s.
+local running, pending, pendingSince, started = false, false, 0, false
 function M.start(getPC, getVehicle, log)
     if running then return end
     running = true
     require("telemetry").register()
-    LoopAsync(1, function()
-        if pending then return false end
-        pending = true
+    LoopAsync(5, function()
+        if pending then
+            if os.clock() - pendingSince < 0.2 then return false end
+            st.lost = (st.lost or 0) + 1
+            if st.lost <= 3 or st.lost % 100 == 0 then log("TC: game-thread run lost (%d so far), queuing again", st.lost) end
+        end
+        pending, pendingSince = true, os.clock()
         ExecuteInGameThread(function()
             pending = false
+            if not started then started = true; log("TC: loop running") end
             local ok, err = pcall(function()
                 local veh = getVehicle()
                 if valid(veh) then M.step(veh, log) end
