@@ -143,11 +143,11 @@ local ownerPC = nil
 local function ensureLoop(getVehicle, log)
     if loopRunning then return end
     loopRunning = true
-    LoopAsync(TICK_MS, function()
+    require("loop").every(TICK_MS, function()
         if not ui and not visual.wanted() and not brakepanel.wanted() and not steerprobe.active() and not telemetry.recording() then
             loopRunning = false; return true
         end
-        ExecuteInGameThread(function()
+        do
             local ok, err = pcall(function()
                 local veh = getVehicle()
                 local s = telemetry.sample(veh)
@@ -169,7 +169,7 @@ local function ensureLoop(getVehicle, log)
                 visual.setWanted(false)
                 brakepanel.setWanted(false)
             end
-        end)
+        end
         return false
     end)
 end
