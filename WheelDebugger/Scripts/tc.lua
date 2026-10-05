@@ -199,46 +199,22 @@ local function applyScale(cut)
     st.eThr, st.eScale, st.eIdle = num(e.tc_eThr), cur, num(e.tc_eIdle)
 end
 
--- Dials per car. Each car model is its own Blueprint class (Neo_C, Tuscan_C, ...), so the class name is the key:
--- every car of a model shares one setting. Kept in WheelDebugger\tc_cars.txt, one "Class tc cut saved" line per car,
--- written on every dial change. A car that isn't in the file starts at the defaults.
-local carsFile = require("paths").modDir .. "tc_cars.txt"
-local cars, carKey = nil, nil
-
-local function loadCars()
-    cars = {}
-    local f = io.open(carsFile, "r")
-    if not f then return end
-    for line in f:lines() do
-        local k, a, b, c = line:match("^(%S+)%s+(%d+)%s+(%d+)%s+(%d+)")
-        if k then cars[k] = { tonumber(a), tonumber(b), tonumber(c) } end
-    end
-    f:close()
-end
-
-local function saveCars(log)
-    local keys = {}
-    for k in pairs(cars) do keys[#keys + 1] = k end
-    table.sort(keys)
-    local f, err = io.open(carsFile, "w")
-    if not f then log("TC: can't save %s: %s", carsFile, tostring(err)); return end
-    for _, k in ipairs(keys) do f:write(string.format("%s %d %d %d\n", k, cars[k][1], cars[k][2], cars[k][3])) end
-    f:close()
-end
+-- Dials per car model (carprefs.lua). A car that isn't stored yet starts at the defaults.
+local carprefs = require("carprefs")
+local carKey = nil
 
 local function selectCar(veh, log)
-    if not cars then loadCars() end
     carKey = veh:GetClass():GetFName():ToString()
-    local c = cars[carKey]
+    local c = carprefs.get(carKey)
     tcLevel, cutLevel, savedLevel = DEFAULT_TC, DEFAULT_CUT, DEFAULT_TC
-    if c then
-        tcLevel = math.max(0, math.min(11, c[1]))
-        cutLevel = math.max(1, math.min(11, c[2]))
-        savedLevel = math.max(1, math.min(11, c[3]))
+    if c and c.tc then
+        tcLevel = math.max(0, math.min(11, c.tc))
+        cutLevel = math.max(1, math.min(11, c.cut or DEFAULT_CUT))
+        savedLevel = math.max(1, math.min(11, c.saved or DEFAULT_TC))
     end
     st.showUntil = os.clock() + 3
     log("TC: %s, %s (%s)", carKey, tcLevel == 0 and "off" or string.format("TC %d CUT %d", tcLevel, cutLevel),
-        c and "saved" or "defaults")
+        (c and c.tc) and "saved" or "defaults")
 end
 
 -- One controller step. Called from the game thread as often as UE4SS lets us.
@@ -327,7 +303,8 @@ function M.step(veh, log)
     applyScale(st.cut)
 end
 
--- Small HUD box: dial values for 3 s after a change, and while the TC is cutting.
+-- Small HUD box: dial values for 3 s after a change, and while the TC is cutting. The active diff's dials (ad.lua)
+-- are a third line for 3 s after they change or the car changes.
 local function ensureUI(pc)
     if st.ui and valid(st.ui.widget) then return st.ui end
     local host = StaticFindObject("/Script/MotorTown.TireForceGraphWidget")
@@ -342,7 +319,7 @@ local function ensureUI(pc)
     border:SetContent(tb)
     local slot = canvas:AddChildToCanvas(border)
     slot:SetPosition({ X = 860, Y = 40 })
-    slot:SetSize({ X = 260, Y = 64 })
+    slot:SetSize({ X = 260, Y = 90 })
     pcall(function() local f = tb.Font; f.Size = 16; tb:SetFont(f) end)
     w:AddToViewport(101)
     st.ui = { widget = w, text = tb, shown = true, last = nil }
@@ -357,7 +334,9 @@ end
 function M.hud(pc, now)
     if not valid(pc) then return end
     local cutting = st.cut > 0.02
-    local want = now < st.showUntil or cutting or st.disabled ~= nil
+    local ad = require("ad")
+    local adWanted = ad.hudWanted(now)
+    local want = now < st.showUntil or cutting or st.disabled ~= nil or adWanted
     if not want then
         if st.ui and valid(st.ui.widget) and st.ui.shown then st.ui.widget:SetVisibility(1); st.ui.shown = false end
         return
@@ -369,15 +348,13 @@ function M.hud(pc, now)
     local line2 = st.disabled and "TC writes stopped (see log)" or ((cutting and "● " or "  ") .. bar(st.cut))
     if not cutting and not st.disabled and carKey then line2 = "  " .. carKey:gsub("_C$", "") end
     local s = line1 .. "\n" .. line2
+    if adWanted then s = s .. "\n" .. ad.hudLine() end
     if s ~= ui.last then ui.text:SetText(FText(s)); ui.last = s end
 end
 
 local function changed(log)
     st.showUntil = os.clock() + 3
-    if carKey and cars then
-        cars[carKey] = { tcLevel, cutLevel, savedLevel }
-        pcall(saveCars, log)
-    end
+    carprefs.put(carKey, { tc = tcLevel, cut = cutLevel, saved = savedLevel }, log)
     if tcLevel == 0 then log("TC off")
     else log("TC %d (slip %.0f %%), CUT %d (P %.2f, I %.1f)", tcLevel, slipTarget(tcLevel) * 100, cutLevel, gains(cutLevel)) end
 end
@@ -408,7 +385,10 @@ function M.toggleTest(log)
 end
 
 -- Values for the F8 panel and the CSV recorder.
-function M.sample() return { pedal = st.pedal, out = st.out, cut = st.cut, dv = st.dvMax, allowed = st.allowed, latG = st.latG } end
+function M.sample()
+    return { pedal = st.pedal, out = st.out, cut = st.cut, dv = st.dvMax, allowed = st.allowed, latG = st.latG,
+        level = tcLevel, cutLevel = cutLevel, scale = st.eScale or -1 }
+end
 
 function M.label()
     local head = tcLevel == 0 and "TC off" or string.format("TC %d CUT %d", tcLevel, cutLevel)
@@ -451,6 +431,12 @@ local function stepSafe(getVehicle, log, where)
         if valid(veh) then M.step(veh, log) end
     end)
     if not ok and not st.warned then st.warned = true; log("TC step (%s) failed: %s", where, tostring(err)) end
+    -- The active diff (ad.lua) steps at the same point: after input, before the vehicle ticks.
+    local ok2, err2 = pcall(function()
+        local veh = getVehicle()
+        if valid(veh) then require("ad").step(veh, log) end
+    end)
+    if not ok2 and not st.adWarned then st.adWarned = true; log("AD step (%s) failed: %s", where, tostring(err2)) end
 end
 
 local function tryPCHook(pc, getVehicle, log)

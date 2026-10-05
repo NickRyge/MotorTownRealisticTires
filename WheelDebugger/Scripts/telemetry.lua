@@ -171,7 +171,7 @@ function M.startRecording(seconds, hz, log)
     local path = OUT_DIR .. os.date("tel_%Y%m%d_%H%M%S.csv")
     local f = io.open(path, "w")
     if not f then log("can't write %s", path); return end
-    f:write("n,t,slot,speed_kph,vel_x,vel_y,acc_lat_g,acc_long_g,steer,max_steer,fx,fy,load,vx,vy,surf,rel_yaw,stick,steer_yaw,brake,throttle,yaw,wx,wy,tc_pedal,tc_out,tc_cut,tc_spin,tc_allowed\n")
+    f:write("n,t,slot,speed_kph,vel_x,vel_y,acc_lat_g,acc_long_g,steer,max_steer,fx,fy,load,vx,vy,surf,rel_yaw,stick,steer_yaw,brake,throttle,yaw,wx,wy,tc_pedal,tc_out,tc_cut,tc_spin,tc_allowed,tc_level,tc_cutlevel,eng_scale,ad_on,ad_power,ad_coast,ad_yaw_ratio,yaw_rate\n")
     rec = { f = f, n = 0, max = seconds * hz, path = path }
     log("recording %ds at %dHz to %s", seconds, hz, path)
 end
@@ -181,11 +181,12 @@ function M.record(s, log)
     rec.n = rec.n + 1
     local lines = {}
     local tc = require("tc").sample()
+    local ad = require("ad").sample()
     for _, w in ipairs(s.wheels) do
-        lines[#lines + 1] = string.format("%d,%.4f,%s,%.2f,%.3f,%.3f,%.3f,%.3f,%.4f,%.1f,%.1f,%.1f,%.1f,%.6g,%.6g,%.6g,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%.1f,%.1f,%.3f,%.3f,%.3f,%.2f,%.2f",
+        lines[#lines + 1] = string.format("%d,%.4f,%s,%.2f,%.3f,%.3f,%.3f,%.3f,%.4f,%.1f,%.1f,%.1f,%.1f,%.6g,%.6g,%.6g,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f,%.1f,%.1f,%.3f,%.3f,%.3f,%.2f,%.2f,%d,%d,%.3f,%d,%.1f,%.1f,%.3f,%.4f",
             rec.n, s.t, w.slot, s.speed, s.velX, s.velY, s.accLat, s.accLong, s.steer, s.maxSteer,
             w.fx, w.fy, w.load, w.vx, w.vy, w.surf, w.relYaw, w.stick, w.steerYaw, s.brake or 0, s.throttle or 0,
-            s.yaw or 0, w.x, w.y, tc.pedal, tc.out, tc.cut, tc.dv, tc.allowed)
+            s.yaw or 0, w.x, w.y, tc.pedal, tc.out, tc.cut, tc.dv, tc.allowed, tc.level, tc.cutLevel, tc.scale, ad.on, ad.power, ad.coast, ad.ratio, ad.yawRate)
     end
     rec.f:write(table.concat(lines, "\n") .. "\n")
     if rec.n >= rec.max then
