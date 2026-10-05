@@ -28,7 +28,9 @@ local RELEASE = 1.5        -- cut given back per second once slip is under the t
 local MAX_CUT = 0.95
 local MIN_PEDAL = 0.05
 
-local tcLevel, cutLevel = 6, 5
+local DEFAULT_TC, DEFAULT_CUT = 6, 5
+local tcLevel, cutLevel = DEFAULT_TC, DEFAULT_CUT
+local savedLevel = tcLevel  -- level numpad 5 turns back on
 local registerHook          -- defined near the end (needs the controller state)
 -- hook: pre-hook on MTEngineComponent:SetThrottle scales the argument (works only if the game calls it through
 -- reflection; the panel shows calls/s). vehicle: write vehicle Throttle. engine: call SetThrottle ourselves.
@@ -197,6 +199,48 @@ local function applyScale(cut)
     st.eThr, st.eScale, st.eIdle = num(e.tc_eThr), cur, num(e.tc_eIdle)
 end
 
+-- Dials per car. Each car model is its own Blueprint class (Neo_C, Tuscan_C, ...), so the class name is the key:
+-- every car of a model shares one setting. Kept in WheelDebugger\tc_cars.txt, one "Class tc cut saved" line per car,
+-- written on every dial change. A car that isn't in the file starts at the defaults.
+local carsFile = require("paths").modDir .. "tc_cars.txt"
+local cars, carKey = nil, nil
+
+local function loadCars()
+    cars = {}
+    local f = io.open(carsFile, "r")
+    if not f then return end
+    for line in f:lines() do
+        local k, a, b, c = line:match("^(%S+)%s+(%d+)%s+(%d+)%s+(%d+)")
+        if k then cars[k] = { tonumber(a), tonumber(b), tonumber(c) } end
+    end
+    f:close()
+end
+
+local function saveCars(log)
+    local keys = {}
+    for k in pairs(cars) do keys[#keys + 1] = k end
+    table.sort(keys)
+    local f, err = io.open(carsFile, "w")
+    if not f then log("TC: can't save %s: %s", carsFile, tostring(err)); return end
+    for _, k in ipairs(keys) do f:write(string.format("%s %d %d %d\n", k, cars[k][1], cars[k][2], cars[k][3])) end
+    f:close()
+end
+
+local function selectCar(veh, log)
+    if not cars then loadCars() end
+    carKey = veh:GetClass():GetFName():ToString()
+    local c = cars[carKey]
+    tcLevel, cutLevel, savedLevel = DEFAULT_TC, DEFAULT_CUT, DEFAULT_TC
+    if c then
+        tcLevel = math.max(0, math.min(11, c[1]))
+        cutLevel = math.max(1, math.min(11, c[2]))
+        savedLevel = math.max(1, math.min(11, c[3]))
+    end
+    st.showUntil = os.clock() + 3
+    log("TC: %s, %s (%s)", carKey, tcLevel == 0 and "off" or string.format("TC %d CUT %d", tcLevel, cutLevel),
+        c and "saved" or "defaults")
+end
+
 -- One controller step. Called from the game thread as often as UE4SS lets us.
 function M.step(veh, log)
     if not valid(veh) then return end
@@ -210,6 +254,8 @@ function M.step(veh, log)
             pcall(applyScale, 0)                         -- give the old engine its scale back
             st.scaleWritten, st.scaleBase = nil, nil
             pcall(discover, veh, log)
+            local ok, err = pcall(selectCar, veh, log)
+            if not ok then log("TC: per-car settings failed: %s", tostring(err)) end
         end
         st.vehAddr, st.wheels = addr, components(veh, WHEEL_CLASS)
     end
@@ -321,17 +367,21 @@ function M.hud(pc, now)
     local line1 = tcLevel == 0 and "TC OFF" or string.format("TC %d   CUT %d", tcLevel, cutLevel)
     if testCut then line1 = "TC TEST 50 % cut" end
     local line2 = st.disabled and "TC writes stopped (see log)" or ((cutting and "● " or "  ") .. bar(st.cut))
+    if not cutting and not st.disabled and carKey then line2 = "  " .. carKey:gsub("_C$", "") end
     local s = line1 .. "\n" .. line2
     if s ~= ui.last then ui.text:SetText(FText(s)); ui.last = s end
 end
 
 local function changed(log)
     st.showUntil = os.clock() + 3
+    if carKey and cars then
+        cars[carKey] = { tcLevel, cutLevel, savedLevel }
+        pcall(saveCars, log)
+    end
     if tcLevel == 0 then log("TC off")
     else log("TC %d (slip %.0f %%), CUT %d (P %.2f, I %.1f)", tcLevel, slipTarget(tcLevel) * 100, cutLevel, gains(cutLevel)) end
 end
 
-local savedLevel = tcLevel
 function M.tcUp(log) tcLevel = math.min(11, tcLevel + 1); changed(log) end
 function M.toggle(log)
     if tcLevel > 0 then savedLevel, tcLevel = tcLevel, 0 else tcLevel = savedLevel > 0 and savedLevel or 6 end
