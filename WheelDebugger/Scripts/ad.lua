@@ -85,10 +85,11 @@ end
 -- The car's own LSD part back on every diff we may have written (locked diffs untouched).
 local function restore()
     for _, d in ipairs(st.diffs) do
-        if valid(d.comp) and num(d.comp.ad_type) ~= 1 then
+        if valid(d.comp) and (num(d.comp.ad_type) ~= 1 or d.weLocked) then
             d.comp.ad_type = d.type
             d.comp.ad_accel = d.accel
             d.comp.ad_brake = d.brake
+            d.weLocked = false
         end
     end
     st.written = false
@@ -97,18 +98,28 @@ end
 local function discover(veh, log)
     st.diffs = {}
     local names = {}
-    for _, c in ipairs(components(veh, DIFF_CLASS)) do
+    local carprefs = require("carprefs")
+    local saved = carprefs.get(st.car) or {}
+    for i, c in ipairs(components(veh, DIFF_CLASS)) do
         local asset = c.DataAsset
         local d = { comp = c, name = c:GetFName():ToString() }
         local from = "part"
         if valid(asset) then
             d.type, d.accel, d.brake = num(asset.LSDType), num(asset.ClutchPackAccel), num(asset.ClutchPackBrake)
         end
-        if d.type == nil or d.accel == nil or d.brake == nil then
-            -- Part unreadable (seen once after a script reload: "type 0 0/0" on a 50/30 diff): keep what the diff holds
-            -- now, so switching off doesn't turn an LSD into an open diff.
+        local k = "lsd" .. i
+        if d.type ~= nil and d.accel ~= nil and d.brake ~= nil then
+            -- Remember the stock part: its DataAsset pointer is sometimes empty at runtime (Zydro, 2026-10-05).
+            if saved[k .. "t"] ~= d.type or saved[k .. "a"] ~= d.accel or saved[k .. "b"] ~= d.brake then
+                carprefs.put(st.car, { [k .. "t"] = d.type, [k .. "a"] = d.accel, [k .. "b"] = d.brake }, log)
+            end
+        elseif saved[k .. "t"] then
+            d.type, d.accel, d.brake = saved[k .. "t"], saved[k .. "a"] or 0, saved[k .. "b"] or 0
+            from = "remembered part, DataAsset " .. (valid(asset) and "unreadable" or "empty")
+        else
+            -- Nothing better: keep what the diff holds now, so switching off doesn't change it.
             d.type, d.accel, d.brake = num(c.ad_type) or 0, num(c.ad_accel) or 0, num(c.ad_brake) or 0
-            from = "diff, part unreadable"
+            from = "diff's current values, DataAsset " .. (valid(asset) and "unreadable" or "empty")
         end
         st.diffs[#st.diffs + 1] = d
         names[#names + 1] = string.format("%s type %d %g/%g (%s%s)", d.name, d.type, d.accel, d.brake, from,
@@ -199,14 +210,22 @@ function M.step(veh, log)
         pc * (PEDAL_BASE + (1 - PEDAL_BASE) * clamp(pedal, 0, 1)) * st.usF * (1 + (OS_GAIN_POWER - 1) * st.osF) * st.lowF
     st.coast = coastLevel >= 11 and coef(coastLevel) or coef(coastLevel) * (1 + (OS_GAIN - 1) * st.osF) * st.lowF
 
+    -- Dial 11 = the solver's own locked mode (type 1: left/right speed difference zeroed every step), on power or on
+    -- the overrun depending on the pedal. Unmistakable, so it also tells whether the writes reach the physics at all.
+    local onPower = pedal > 0.05
+    local lockNow = (onPower and powerLevel >= 11) or (not onPower and coastLevel >= 11)
+
     for _, d in ipairs(st.diffs) do
         local c = d.comp
         if d == st.diffs[1] and valid(c) then
             -- As found, before this frame's write: if our last write persisted, these equal last frame's values.
             st.foundType, st.foundAccel, st.foundBrake = num(c.ad_type) or -1, num(c.ad_accel) or -1, num(c.ad_brake) or -1
         end
-        if d.type ~= 1 and valid(c) and num(c.ad_type) ~= 1 then
-            if c.ad_type ~= 2 then c.ad_type = 2 end
+        -- Type 1 that we didn't write = a Locked part or the driver's diff lock: leave it alone.
+        if d.type ~= 1 and valid(c) and (num(c.ad_type) ~= 1 or d.weLocked) then
+            local want = lockNow and 1 or 2
+            if c.ad_type ~= want then c.ad_type = want end
+            d.weLocked = lockNow
             c.ad_accel = st.power
             c.ad_brake = st.coast
         end
