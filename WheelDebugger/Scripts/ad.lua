@@ -16,23 +16,28 @@
 --   *       active diff on / off (off = the car's own LSD part, restored).
 -- On top of the dials:
 --   understeer on power (yaw rate well below what the steering asks for) opens the power lock, down to 30 %, so the
---   car can rotate; oversteer (yaw rate above it) raises the coast lock up to 2×, which damps the yaw; at parking
---   speeds with a lot of steering both open (no tyre scrub, no crabbing trucks).
+--   car can rotate; oversteer (yaw rate above it, or rotating against the steering = countersteer) raises the coast
+--   lock up to 2× and the power lock up to 1.5×, which damps the yaw; at parking speeds with a lot of steering both
+--   open (no tyre scrub, no crabbing trucks).
+-- Sign convention (2026-10-05 recordings): positive Steer gives a positive yaw rate (atan2 of the forward vector).
 
 local M = {}
 
 local DIFF_CLASS = "/Script/MotorTown.MTDifferentialComponent"
 local WHEEL_CLASS = "/Script/MotorTown.MHWheelComponent"
 local DEFAULT_POWER, DEFAULT_COAST = 4, 2
-local function coef(n)                       -- dial -> lock coefficient (stock parts: 50 / 30 / 100)
+-- Dial -> lock coefficient, geometric: 1: 30, 3: 68, 5: 152, 7: 342, 9: 769, 10: 1153, 11: locked.
+-- (Stock parts: 50 / 30 / 100. 2026-10-05, Zydro: 180 still let the rear wheels differ by ~0.4 m/s under power.)
+local function coef(n)
     if n <= 0 then return 0 elseif n >= 11 then return 1e6 end
-    return 20 * n
+    return 30 * 1.5 ^ (n - 1)
 end
 local PEDAL_BASE = 0.3                       -- power lock at a feathered pedal, as a share of the dial
 local US_LO, US_HI = 0.4, 0.75               -- yaw-rate ratio (actual / kinematic) where the power lock is fully / not opened
 local US_MIN = 0.3                           -- power lock share left in full understeer
 local OS_HI = 1.25                           -- yaw-rate ratio above which the coast lock is raised
-local OS_GAIN = 2.0                          -- coast lock factor at ratio OS_HI + 0.5
+local OS_GAIN = 2.0                          -- coast lock factor at ratio OS_HI + 0.5 (or when countersteering)
+local OS_GAIN_POWER = 1.5                    -- the same for the power lock
 local LOW_KPH_LO, LOW_KPH_HI = 3, 20         -- tight-turn opening fades out between these speeds
 local LOW_MIN = 0.15
 local LOW_STEER = 15                         -- degrees of road-wheel angle for the full tight-turn opening
@@ -41,7 +46,7 @@ local MIN_SPEED = 8                          -- m/s; below this the yaw comparis
 local enabled, powerLevel, coastLevel = false, DEFAULT_POWER, DEFAULT_COAST
 local st = {
     vehAddr = nil, car = nil, diffs = {}, wheelbase = 2.6, maxSteer = 35, written = false,
-    lastT = nil, lastYaw = nil, yawRate = 0, ratio = 1, signAcc = 0,
+    lastT = nil, lastYaw = nil, yawRate = 0, ratio = 1,
     power = 0, coast = 0, usF = 1, osF = 1, lowF = 1, showUntil = 0,
 }
 
@@ -94,14 +99,20 @@ local function discover(veh, log)
     local names = {}
     for _, c in ipairs(components(veh, DIFF_CLASS)) do
         local asset = c.DataAsset
-        local d = { comp = c, name = c:GetFName():ToString(), type = 0, accel = 0, brake = 0 }
+        local d = { comp = c, name = c:GetFName():ToString() }
+        local from = "part"
         if valid(asset) then
-            d.type = num(asset.LSDType) or 0
-            d.accel = num(asset.ClutchPackAccel) or 0
-            d.brake = num(asset.ClutchPackBrake) or 0
+            d.type, d.accel, d.brake = num(asset.LSDType), num(asset.ClutchPackAccel), num(asset.ClutchPackBrake)
+        end
+        if d.type == nil or d.accel == nil or d.brake == nil then
+            -- Part unreadable (seen once after a script reload: "type 0 0/0" on a 50/30 diff): keep what the diff holds
+            -- now, so switching off doesn't turn an LSD into an open diff.
+            d.type, d.accel, d.brake = num(c.ad_type) or 0, num(c.ad_accel) or 0, num(c.ad_brake) or 0
+            from = "diff, part unreadable"
         end
         st.diffs[#st.diffs + 1] = d
-        names[#names + 1] = string.format("%s type %d %g/%g", d.name, d.type, d.accel, d.brake)
+        names[#names + 1] = string.format("%s type %d %g/%g (%s%s)", d.name, d.type, d.accel, d.brake, from,
+            valid(asset) and (", " .. asset:GetFName():ToString()) or "")
     end
     -- Wheelbase from the wheel positions along the car (cm -> m).
     local f = veh:GetActorForwardVector()
@@ -123,7 +134,7 @@ local function selectCar(veh, log)
     enabled = c ~= nil and c.ad == 1
     powerLevel = c and c.adp and clamp(c.adp, 0, 11) or DEFAULT_POWER
     coastLevel = c and c.adc and clamp(c.adc, 0, 11) or DEFAULT_COAST
-    st.signAcc, st.lastYaw, st.lastT, st.yawRate = 0, nil, nil, 0
+    st.lastYaw, st.lastT, st.yawRate = nil, nil, 0
     discover(veh, log)
     if not enabled then restore() end              -- also undoes writes left over from a script reload
     if #st.diffs > 0 then st.showUntil = os.clock() + 3 end
@@ -164,18 +175,18 @@ function M.step(veh, log)
     local pedal = num(veh.Throttle) or 0
     local delta = math.rad((num(veh.Steer) or 0) * st.maxSteer)
 
-    -- Yaw rate against the kinematic (no-slip) yaw rate the steering asks for. The sign convention between Steer and
-    -- the yaw angle is learned from the driving, so a flipped axis can't read as permanent understeer.
-    st.usF, st.osF = 1, 1
+    -- Yaw rate against the kinematic (no-slip) yaw rate the steering asks for. A negative ratio means the car rotates
+    -- against the steering: countersteer in a slide, i.e. oversteer, never understeer.
+    st.usF, st.osF = 1, 0
     if speed > MIN_SPEED and math.abs(delta) > math.rad(2) then
         local ref = speed * math.tan(delta) / st.wheelbase
-        if math.abs(st.yawRate) > 0.05 then
-            st.signAcc = clamp(st.signAcc + ((st.yawRate * ref > 0) and 1 or -1), -50, 50)
+        st.ratio = st.yawRate / ref
+        if st.ratio < 0 then
+            st.osF = 1
+        else
+            st.usF = US_MIN + (1 - US_MIN) * clamp((st.ratio - US_LO) / (US_HI - US_LO), 0, 1)
+            st.osF = clamp((st.ratio - OS_HI) / 0.5, 0, 1)
         end
-        local sign = st.signAcc >= 0 and 1 or -1
-        st.ratio = sign * st.yawRate / ref
-        st.usF = US_MIN + (1 - US_MIN) * clamp((st.ratio - US_LO) / (US_HI - US_LO), 0, 1)
-        st.osF = 1 + (OS_GAIN - 1) * clamp((st.ratio - OS_HI) / 0.5, 0, 1)
     else
         st.ratio = 1
     end
@@ -184,8 +195,9 @@ function M.step(veh, log)
     st.lowF = 1 - (1 - clamp((kph - LOW_KPH_LO) / (LOW_KPH_HI - LOW_KPH_LO), LOW_MIN, 1)) * steerW
 
     local pc = coef(powerLevel)
-    st.power = powerLevel >= 11 and pc or pc * (PEDAL_BASE + (1 - PEDAL_BASE) * clamp(pedal, 0, 1)) * st.usF * st.lowF
-    st.coast = coastLevel >= 11 and coef(coastLevel) or coef(coastLevel) * st.osF * st.lowF
+    st.power = powerLevel >= 11 and pc or
+        pc * (PEDAL_BASE + (1 - PEDAL_BASE) * clamp(pedal, 0, 1)) * st.usF * (1 + (OS_GAIN_POWER - 1) * st.osF) * st.lowF
+    st.coast = coastLevel >= 11 and coef(coastLevel) or coef(coastLevel) * (1 + (OS_GAIN - 1) * st.osF) * st.lowF
 
     for _, d in ipairs(st.diffs) do
         local c = d.comp
@@ -206,7 +218,7 @@ local function changed(log)
     st.showUntil = os.clock() + 3
     require("carprefs").put(st.car, { ad = enabled and 1 or 0, adp = powerLevel, adc = coastLevel }, log)
     if not enabled then log("AD off (car's own LSD part)")
-    else log("AD POWER %d (coef %g), COAST %d (coef %g)", powerLevel, coef(powerLevel), coastLevel, coef(coastLevel)) end
+    else log("AD POWER %d (coef %.0f), COAST %d (coef %.0f)", powerLevel, coef(powerLevel), coastLevel, coef(coastLevel)) end
 end
 
 function M.toggle(log) enabled = not enabled; changed(log) end

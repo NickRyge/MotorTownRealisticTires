@@ -1,8 +1,10 @@
 -- Traction control, GT3 style: two dials, throttle cut only (no brake or diff intervention).
 --   TC  (1..11, 0 = off)  slip threshold: higher = less wheelspin allowed before it cuts.
 --                         The allowed slip shrinks with lateral G (a spinning tyre mid-corner costs side grip on
---                         the friction circle) and has a slip-speed floor so pulling away doesn't bog.
---   CUT (1..11)           intervention strength: how hard the throttle is cut per unit of excess slip.
+--                         the friction circle) and has a spin floor (1.6 m/s at TC 1 down to 0.4 m/s at TC 11) so
+--                         pulling away doesn't bog.
+--   CUT (1..11)           how much power it may take away: deepest cut 25 % at CUT 1 up to 95 % at CUT 11, and a
+--                         slightly quicker response the higher it is.
 -- Slip per wheel = (|surface speed| - |ground speed|) from the contact-patch fields (telemetry.lua offsets), so it is
 -- exact on any drivetrain: no undriven reference wheel needed. The worst wheel drives the controller.
 --
@@ -11,21 +13,23 @@
 --   0       actuator: vehicle Throttle / hook on SetThrottle (registered on first pick) / engine SetThrottle / both
 --   .       actuator test: fixed 50 % throttle cut while the pedal is down (TC logic bypassed)
 --
--- Unverified: whether a throttle written from Lua reaches the physics before the input overwrites it. The loop
--- checks itself: it shows the rate it runs at, and stops writing if a written value is never overwritten by the
--- input (we'd lose the pedal and could not give the throttle back).
+-- The "scale" actuator (default) works (2026-10-05: TC on vs off is night and day). The game puts the scale back to 1.0
+-- before the next frame (read back: 0.05 right after our write, 1.00 a frame later), so the cut is re-applied every
+-- frame. The vehicle-Throttle self-check below only matters for the other actuators.
 
 local M = {}
 
 local WHEEL_CLASS = "/Script/MotorTown.MHWheelComponent"
 
--- Dial maps. TC n -> slip ratio allowed in a straight line; CUT n -> controller gains.
+-- Dial maps. TC n -> how much wheelspin is allowed; CUT n -> how much power the TC may take away.
+-- 2026-10-05 recordings: with one 1 m/s spin floor for every level, TC 6..11 allowed the same spin below ~70 km/h, and
+-- with gains of 0.15n the cut slammed to the 95 % limit at any CUT, so neither dial changed anything.
 local function slipTarget(n) return 0.25 - (n - 1) * 0.02 end      -- 1: 25 % ... 6: 15 % ... 11: 5 %
-local function gains(n) return 0.15 * n, 1.2 * n end               -- P (cut per unit excess), I (per unit per s)
+local function spinFloor(n) return 1.6 - (n - 1) * 0.12 end        -- m/s always allowed: 1: 1.6 ... 6: 1.0 ... 11: 0.4
+local function cutMax(n) return 0.25 + (n - 1) * 0.07 end          -- deepest cut: 1: 25 % ... 6: 60 % ... 11: 95 %
+local function gains(n) return 0.3 + 0.04 * n, 2 + 0.4 * n end     -- P (cut per unit relative excess), I (per s)
 local LAT_SHAPE = 0.5      -- at 1 g cornering only half the straight-line slip is allowed
-local DV_MIN = 1.0         -- m/s of wheelspin always allowed (launch floor)
 local RELEASE = 1.5        -- cut given back per second once slip is under the target
-local MAX_CUT = 0.95
 local MIN_PEDAL = 0.05
 
 local DEFAULT_TC, DEFAULT_CUT = 6, 5
@@ -290,12 +294,13 @@ function M.step(veh, log)
         st.cut = 0.5
     else
         local kappa = slipTarget(tcLevel) * (1 - LAT_SHAPE * math.min(1, latG))
-        local allowed = math.max(kappa * speedMs, DV_MIN)
+        local allowed = math.max(kappa * speedMs, spinFloor(tcLevel))
         local e = (dv - allowed) / math.max(allowed, 0.5)          -- excess slip, relative
         local kp, ki = gains(cutLevel)
-        if e > 0 then st.i = math.min(MAX_CUT, st.i + ki * e * dt)
+        local maxCut = cutMax(cutLevel)
+        if e > 0 then st.i = math.min(maxCut, st.i + ki * e * dt)
         else st.i = math.max(0, st.i - RELEASE * dt) end
-        st.cut = math.max(0, math.min(MAX_CUT, kp * math.max(e, 0) + st.i))
+        st.cut = math.max(0, math.min(maxCut, kp * math.max(e, 0) + st.i))
         st.target, st.allowed = kappa, allowed
     end
     st.dvMax = dv
@@ -357,7 +362,8 @@ local function changed(log)
     st.showUntil = os.clock() + 3
     carprefs.put(carKey, { tc = tcLevel, cut = cutLevel, saved = savedLevel }, log)
     if tcLevel == 0 then log("TC off")
-    else log("TC %d (slip %.0f %%), CUT %d (P %.2f, I %.1f)", tcLevel, slipTarget(tcLevel) * 100, cutLevel, gains(cutLevel)) end
+    else log("TC %d (slip %.0f %%, floor %.2f m/s), CUT %d (max %.0f %%, P %.2f, I %.1f)", tcLevel, slipTarget(tcLevel) * 100,
+        spinFloor(tcLevel), cutLevel, cutMax(cutLevel) * 100, gains(cutLevel)) end
 end
 
 function M.tcUp(log) tcLevel = math.min(11, tcLevel + 1); changed(log) end
