@@ -189,6 +189,10 @@ function M.step(veh, log)
 
     for _, d in ipairs(st.diffs) do
         local c = d.comp
+        if d == st.diffs[1] and valid(c) then
+            -- As found, before this frame's write: if our last write persisted, these equal last frame's values.
+            st.foundType, st.foundAccel, st.foundBrake = num(c.ad_type) or -1, num(c.ad_accel) or -1, num(c.ad_brake) or -1
+        end
         if d.type ~= 1 and valid(c) and num(c.ad_type) ~= 1 then
             if c.ad_type ~= 2 then c.ad_type = 2 end
             c.ad_accel = st.power
@@ -221,7 +225,8 @@ end
 
 -- Values for the CSV recorder.
 function M.sample()
-    return { on = enabled and 1 or 0, power = st.power, coast = st.coast, ratio = st.ratio, yawRate = st.yawRate }
+    return { on = enabled and 1 or 0, power = st.power, coast = st.coast, ratio = st.ratio, yawRate = st.yawRate,
+        foundType = st.foundType or -1, foundAccel = st.foundAccel or -1, foundBrake = st.foundBrake or -1 }
 end
 
 return M

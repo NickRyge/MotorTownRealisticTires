@@ -197,6 +197,7 @@ local function applyScale(cut)
     st.scaleWritten = want
     -- Shown on the panel: the scale as found (before this write), so a cut that sticks shows up as < 1 there.
     st.eThr, st.eScale, st.eIdle = num(e.tc_eThr), cur, num(e.tc_eIdle)
+    st.eScaleAfter = num(e.tc_eScale)              -- read back right after the write: did it take at all?
 end
 
 -- Dials per car model (carprefs.lua). A car that isn't stored yet starts at the defaults.
@@ -387,7 +388,8 @@ end
 -- Values for the F8 panel and the CSV recorder.
 function M.sample()
     return { pedal = st.pedal, out = st.out, cut = st.cut, dv = st.dvMax, allowed = st.allowed, latG = st.latG,
-        level = tcLevel, cutLevel = cutLevel, scale = st.eScale or -1 }
+        level = tcLevel, cutLevel = cutLevel, scale = st.eScale or -1, scaleAfter = st.eScaleAfter or -1,
+        thr = st.eThr or -1 }
 end
 
 function M.label()
