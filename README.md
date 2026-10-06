@@ -61,6 +61,9 @@ It adds:
 - stronger brakes (×1.8), because stock brakes run out before the tires do
 - smoother ABS
 - the game's friction circle (on by default), so slides hold and recover better
+- traction control with two dials, TC and CUT, like a GT3 car (on by default at TC 6 / CUT 5)
+- an active differential that sets the LSD lock from what the car is doing (off by default)
+- per-car settings: each car model remembers its own TC and diff dials
 - force feedback presets for steering wheels
 - live tire and brake telemetry overlays and a 30-second data recorder
 
@@ -83,6 +86,25 @@ It adds:
 | Ctrl+F1 | Force feedback preset: stock / detail (default) / raw |
 | Ctrl+F7 | Steering assist for keyboard/gamepad (off by default) |
 | Ctrl+F8 | Friction circle on (default) / off |
+| Ctrl+F2 | Record 10 seconds of differential data |
+
+**Traction control (numpad):**
+
+| Key | What it does |
+|---|---|
+| 8 / 2 | TC up / down (1–11, 0 = off): higher allows less wheelspin |
+| 6 / 4 | CUT up / down (1–11): how much power TC can take away |
+| 5 | TC on / off (keeps the level) |
+
+**Active differential (numpad):**
+
+| Key | What it does |
+|---|---|
+| 7 / 1 | Power lock up / down (0 = open, 11 = locked) |
+| 9 / 3 | Coast lock up / down (off throttle and braking) |
+| * | Active diff on / off (off = the car's own diff) |
+
+The dials are saved per car model in `ue4ss/Mods/WheelDebugger/car_settings.txt`.
 
 **Uninstall:** delete `dwmapi.dll` and the `ue4ss` folder from `MotorTown/Binaries/Win64/`.
 
