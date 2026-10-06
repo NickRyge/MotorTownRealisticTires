@@ -7,6 +7,8 @@ local M = {}
 local src = (debug.getinfo(1, "S").source:gsub("^@", "")):gsub("/", "\\")
 local modDir = src:match("^(.*\\)Scripts\\[^\\]+$") or ".\\"
 
+M.modDir = modDir
+
 local function withSlash(p) return p:sub(-1) == "\\" and p or p .. "\\" end
 
 local base = modDir .. "output\\"
